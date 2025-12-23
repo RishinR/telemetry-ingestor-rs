@@ -131,7 +131,7 @@ Client           API Server                 PostgreSQL
 - Models: [src/models/telemetry.rs](src/models/telemetry.rs)
 - Bootstrap & graceful shutdown: [src/main.rs](src/main.rs)
 
-### Data Flow
+### Telemetry Data Flow
 
 1. Client sends `POST /api/v1/telemetry` with JSON payload
 2. Bearer token checked against `API_TOKEN`
