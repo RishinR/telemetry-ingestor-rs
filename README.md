@@ -18,35 +18,75 @@ System Architecture
 
 Client (HTTP Client)
     
-  ----> POST /api/v1/telemetry
+                    ┌─────────────────────────┐
+                    │   Telemetry Client      │
+                    │  (Vessel / Simulator)   │
+                    └───────────┬─────────────┘
+                                │
+                                │ HTTP POST /api/v1/telemetry
+                                │ Authorization: Bearer <token>
+                                ▼
+        ┌─────────────────────────────────────────────────┐
+        │         Telemetry Ingestor (Rust + Axum)        │
+        │                                                 │
+        │  ┌──────────────┐   ┌────────────────────────┐  │
+        │  │ Auth Layer   │──▶│  Telemetry Handler     │  │
+        │  │ (Bearer)     │   │                        │  │
+        │  └──────────────┘   │  - JSON validation     │  │
+        │                     │  - Vessel gating       │  │
+        │                     │  - Signal validation   │  │
+        │                     │  - Metrics capture     │  │
+        │                     └───────────┬────────────┘  │
+        │                                 │               │
+        │       In-memory Signal Registry │               │
+        │       (loaded on startup)       │               │
+        │                                 │               │
+        └─────────────────────────────────┼───────────────┘
+                                          │
+                                          ▼
+                    ┌────────────────────────────────────┐
+                    │            PostgreSQL              │
+                    │                                    │
+                    │  vessel_register_table             │
+                    │  signal_register_table             │
+                    │  main_raw        (valid signals)   │
+                    │  filtered_raw    (invalid signals) │
+                    │  server_metrics  (observability)   │
+                    └────────────────────────────────────┘
 
-+------------------------------------+
-| Telemetry Ingestor (Axum)          |
-|                                    |
-|  - Router                          |
-|  - Auth Middleware (Bearer token)  |
-|  - Telemetry Handler               |
-|  - Signal Registry (in-memory)     |
-+------------------------------------+
-         | validate vessel
-         |
-         v
-+------------------------------------+
-| PostgreSQL                         |
-|  VR: vessel_register_table         |
-|  SR: signal_register_table         |
-|  MR: main_raw                      |
-|  FR: filtered_raw                  |
-|  MET: server_metrics               |
-+------------------------------------+
+```
 
-Data Flow (dashed arrows):
-Client ----> Router ----> Auth ----> Handler
-Handler ----> VR (check active vessel)
-Handler ----> Signal Registry (type/known)
-Handler ----> MR (valid signals)
-Handler ----> FR (invalid/unknown)
-Handler ----> MET (per-request timings)
+## Data Flow
+
+```
+Data Flow
+
+Client
+  │
+  │ POST /api/v1/telemetry
+  ▼
+Auth Middleware
+  │
+  ├─ Invalid token ───────────▶ 401 Unauthorized
+  │
+  ▼
+Telemetry Handler
+  │
+  ├─ Unknown vessel ─────────▶ 403 PermissionDenied
+  │
+  ▼
+Signal Validation
+  │
+  ├─ Valid signals ──────────▶ main_raw
+  │
+  ├─ Invalid signals ────────▶ filtered_raw
+  │
+  ▼
+Metrics Capture
+  │
+  ▼
+200 OK (summary)
+
 ```
 
 ### Request Sequence
@@ -54,15 +94,31 @@ Handler ----> MET (per-request timings)
 ```
 Request Sequence
 
-Client ----> Router ----> Handler ----> Postgres
+Client           API Server                 PostgreSQL
+  │                  │                          │
+  │ POST /telemetry  │                          │
+  │─────────────────▶│                          │
+  │                  │ Validate Bearer token    │
+  │                  │                          │
+  │                  │ Check vesselId           │
+  │                  │────────────────────────▶ │
+  │                  │ ◀──────── exists?        │
+  │                  │                          │
+  │                  │ Validate signals         │
+  │                  │ (in-memory registry)     │
+  │                  │                          │
+  │                  │ INSERT valid signals     │
+  │                  │────────────────────────▶ │
+  │                  │                          │
+  │                  │ INSERT invalid signals   │
+  │                  │────────────────────────▶ │
+  │                  │                          │
+  │                  │ INSERT metrics           │
+  │                  │────────────────────────▶ │
+  │                  │                          │
+  │ 200 OK + summary │                          │
+  │◀─────────────────│                          │
 
-- Parse / validate JSON
-- SELECT EXISTS(vessel) ----> Postgres ----> (true/false)
-- Loop signals
-  - valid ----> INSERT main_raw
-  - invalid/unknown ----> INSERT filtered_raw (with reason)
-- INSERT server_metrics
-- Handler ----> Client: 200 OK {counts, timings}
 ```
 
 ### Components & Files
@@ -250,29 +306,12 @@ Environment variables (see `.env.example`):
 - **Graceful Shutdown:** Handles `Ctrl+C` and `SIGTERM` on Unix.
  - **Strict Signal Typing:** Digital signals accept only JSON numbers that are integers `0` or `1`. Analog signals accept only JSON numbers that are floats in the range `1.0..=65535.0`. Non-numeric types (strings, booleans) or mismatched numeric types (e.g., integer for analog) are not ingested; they are written to `filtered_raw` with reason `type_mismatch`. Out-of-range numeric values are written with reason `out_of_range`.
 
-## Scaling Considerations
-
-- Batch inserts (COPY or multi-row INSERT) for higher throughput.
-- Apply backpressure limits via Tower layers.
-- Use `sqlx::Pool` tuning and connection retries.
-
 ## Failure Modes
 
 - `401` Unauthorized when Bearer token mismatches.
 - `403` when vessel is unknown/inactive.
 - `400` for invalid `timestampUTC`.
 - `500` for DB errors (summarized without leaking details).
-
-## Known Limitations
-
-- No idempotency keys; duplicates possible if retried.
-- No schema migrations tool; init via SQL file.
-
-## Troubleshooting
-
-- 401 Unauthorized: Ensure header is exactly `Authorization: Bearer <API_TOKEN>` and matches your `.env`.
-- DB connection errors: Confirm Postgres is running and `DATABASE_URL` is correct. When using Docker, connect via `localhost` mapping.
-- Schema missing: Re-run [db/init.sql](db/init.sql) against your target database.
 
 ## Testing
 
