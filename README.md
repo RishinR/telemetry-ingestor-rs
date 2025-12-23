@@ -13,59 +13,56 @@ Production-grade telemetry ingestion service designed for interview evaluation a
 
 ## System Architecture
 
-```mermaid
-flowchart LR
-  subgraph Client
-    C[HTTP Client]
-  end
+```
+System Architecture
 
-  subgraph App[Telemetry Ingestor (Axum)]
-    R[Router]
-    MW[Auth Check (Bearer)]
-    H[Telemetry Handler]
-    S[In-memory Signal Registry]
-  end
+Client (HTTP Client)
+    
+  ----> POST /api/v1/telemetry
 
-  subgraph DB[(PostgreSQL)]
-    VR[(vessel_register_table)]
-    SR[(signal_register_table)]
-    MR[(main_raw)]
-    FR[(filtered_raw)]
-    MET[(server_metrics)]
-  end
++------------------------------------+
+| Telemetry Ingestor (Axum)          |
+|                                    |
+|  - Router                          |
+|  - Auth Middleware (Bearer token)  |
+|  - Telemetry Handler               |
+|  - Signal Registry (in-memory)     |
++------------------------------------+
+         | validate vessel
+         |
+         v
++------------------------------------+
+| PostgreSQL                         |
+|  VR: vessel_register_table         |
+|  SR: signal_register_table         |
+|  MR: main_raw                      |
+|  FR: filtered_raw                  |
+|  MET: server_metrics               |
++------------------------------------+
 
-  C -->|POST /api/v1/telemetry| R --> MW --> H
-  H -->|validate vessel| VR
-  H -->|validate signals| S
-  H -->|valid| MR
-  H -->|invalid/unknown| FR
-  H --> MET
+Data Flow (dashed arrows):
+Client ----> Router ----> Auth ----> Handler
+Handler ----> VR (check active vessel)
+Handler ----> Signal Registry (type/known)
+Handler ----> MR (valid signals)
+Handler ----> FR (invalid/unknown)
+Handler ----> MET (per-request timings)
 ```
 
 ### Request Sequence
 
-```mermaid
-sequenceDiagram
-  participant Client
-  participant Router
-  participant Handler
-  participant Postgres
+```
+Request Sequence
 
-  Client->>Router: POST /api/v1/telemetry (Bearer token)
-  Router->>Handler: Route match + state
-  Handler->>Handler: Parse/validate JSON
-  Handler->>Postgres: SELECT exists(vessel)
-  Postgres-->>Handler: true/false
-  loop for each signal
-    Handler->>Handler: Lookup in-memory registry
-    alt valid
-      Handler->>Postgres: INSERT main_raw
-    else invalid/unknown
-      Handler->>Postgres: INSERT filtered_raw(reason)
-    end
-  end
-  Handler->>Postgres: INSERT server_metrics
-  Handler-->>Client: 200 OK {counts, timings}
+Client ----> Router ----> Handler ----> Postgres
+
+- Parse / validate JSON
+- SELECT EXISTS(vessel) ----> Postgres ----> (true/false)
+- Loop signals
+  - valid ----> INSERT main_raw
+  - invalid/unknown ----> INSERT filtered_raw (with reason)
+- INSERT server_metrics
+- Handler ----> Client: 200 OK {counts, timings}
 ```
 
 ### Components & Files
