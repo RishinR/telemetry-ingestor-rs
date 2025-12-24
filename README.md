@@ -131,6 +131,18 @@ Client           API Server                 PostgreSQL
 - Models: [src/models/telemetry.rs](src/models/telemetry.rs)
 - Bootstrap & graceful shutdown: [src/main.rs](src/main.rs)
 
+## Project Structure
+
+```
+src/
+ ├── main.rs          # bootstrap, tracing, shutdown
+ ├── app.rs           # router + shared state
+ ├── config.rs        # env-driven config
+ ├── db/              # Postgres functions (sqlx)
+ ├── models/          # request models
+ └── routes/          # telemetry handler
+```
+
 ### Telemetry Data Flow
 
 1. Client sends `POST /api/v1/telemetry` with JSON payload
@@ -316,14 +328,4 @@ Environment variables (see `.env.example`):
 
 See [tests/README.md](tests/README.md) for curl-based test scripts and how to execute them.
 
-## Project Structure
-
-```
-src/
- ├── main.rs          # bootstrap, tracing, shutdown
- ├── app.rs           # router + shared state
- ├── config.rs        # env-driven config
- ├── db/              # Postgres functions (sqlx)
- ├── models/          # request models
- └── routes/          # telemetry handler
-```
+ 
