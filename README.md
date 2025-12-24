@@ -198,56 +198,7 @@ Defined in [db/init.sql](db/init.sql):
 
 Signals are seeded: `Signal_1..50` digital, `Signal_51..200` analog. Vessels `1001`, `1002` seeded active.
 
-## Running Locally
-
-### Quick Start (Local, no Docker for app)
-
-1. Install prerequisites (macOS):
-
-```bash
-brew install postgresql@16
-rustup update
-```
-
-2. Start Postgres:
-
-```bash
-brew services start postgresql@16
-```
-
-3. Configure environment:
-
-```bash
-cp .env.example .env
-# adjust .env if needed; defaults work for local services
-```
-
-4. Create database and apply schema/seed:
-
-```bash
-createdb telemetry || true
-psql -U postgres -d telemetry -f db/init.sql
-```
-
-5. Run the server:
-
-```bash
-cargo build
-cargo run
-```
-
-6. Smoke test:
-
-```bash
-curl -i -X POST http://localhost:8080/api/v1/telemetry \
-  -H "Authorization: Bearer seaker-telemetry-gateway-dev-token" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "vesselId": "1001",
-    "timestampUTC": "2025-12-23T12:34:56Z",
-    "signals": {"Signal_1": 1, "Signal_70": 123.4, "Signal_999": 3.14}
-  }'
-```
+## Running
 
 ### Option A: Docker Compose (recommended)
 
@@ -270,28 +221,76 @@ curl -X POST http://localhost:8080/api/v1/telemetry \
   }'
 ```
 
-### Option B: App locally, services via Docker
+### Option B: Local (no Docker)
 
-Run Postgres in a container, app locally:
+1. Install prerequisites (macOS):
 
 ```bash
-docker run -d --name telemetry-db -p 5432:5432 \
-  -e POSTGRES_PASSWORD=postgres -e POSTGRES_DB=telemetry \
-  postgres:16
+brew install postgresql@16
+rustup update
+```
 
-psql -U postgres -h 127.0.0.1 -d telemetry -f db/init.sql
+2. Start Postgres:
 
+```bash
+brew services start postgresql@16
+```
+
+3. Create or choose a local Postgres user (dev only). Replace placeholders:
+
+```bash
+# (Optional) Create a local superuser for development
+# Replace <user> and <password>
+createuser -s <user>
+psql -d postgres -c "ALTER USER <user> WITH PASSWORD '<password>';"
+```
+
+4. Configure environment and set connection URI in `.env`:
+
+```bash
 cp .env.example .env
-# Ensure DATABASE_URL points at localhost
+# Edit .env and set DATABASE_URL, e.g.
+# DATABASE_URL=postgres://<user>:<password>@localhost:5432/telemetry
+```
 
+5. Create database and apply schema/seed:
+
+```bash
+# Create DB (idempotent). Replace <user> if needed
+createdb -U <user> telemetry 2>/dev/null || true
+
+# Apply schema (replace <user> if needed)
+psql -U <user> -d telemetry -f db/init.sql
+```
+
+6. Run the server:
+
+```bash
+cargo build
 cargo run
+```
+
+7. Smoke test:
+
+```bash
+curl -i -X POST http://localhost:8080/api/v1/telemetry \
+  -H "Authorization: Bearer seaker-telemetry-gateway-dev-token" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "vesselId": "1001",
+    "timestampUTC": "2025-12-23T12:34:56Z",
+    "signals": {"Signal_1": 1, "Signal_70": 123.4, "Signal_999": 3.14}
+  }'
 ```
 
 ## Configuration
 
 Environment variables (see `.env.example`):
 
-- `DATABASE_URL` → e.g., `postgres://postgres:postgres@localhost:5432/telemetry`
+- `DATABASE_URL` → choose based on your setup:
+  - With local `postgres` superuser: `postgres://postgres:postgres@localhost:5432/telemetry`
+  - With your macOS user: `postgres://$USER@localhost:5432/telemetry`
+  - With passworded local user: `postgres://<user>:<password>@localhost:5432/telemetry`
 - `API_TOKEN` → Bearer token expected by server
 - `PORT` → default `8080`
 
