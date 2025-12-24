@@ -312,52 +312,9 @@ Environment variables (see `.env.example`):
 - `400` for invalid `timestampUTC`.
 - `500` for DB errors (summarized without leaking details).
 
-## Testing
+## Tests
 
-Smoke-test the service with curl. These cover health, auth, gating, and ingest.
-
-1) Health (no auth):
-
-```bash
-curl -i http://localhost:8080/healthz
-```
-
-2) 401 Unauthorized (missing token):
-
-```bash
-curl -i -X POST http://localhost:8080/api/v1/telemetry \
-  -H "Content-Type: application/json" \
-  -d '{"vesselId":"1001","timestampUTC":"2025-12-23T12:34:56Z","signals":{"Signal_1":1}}'
-```
-
-3) 403 Forbidden (unknown vessel):
-
-```bash
-curl -i -X POST http://localhost:8080/api/v1/telemetry \
-  -H "Authorization: Bearer seaker-telemetry-gateway-dev-token" \
-  -H "Content-Type: application/json" \
-  -d '{"vesselId":"unknown-xyz","timestampUTC":"2025-12-23T12:34:56Z","signals":{"Signal_1":1}}'
-```
-
-4) 200 OK (known vessel, mixed signals):
-
-```bash
-curl -i -X POST http://localhost:8080/api/v1/telemetry \
-  -H "Authorization: Bearer seaker-telemetry-gateway-dev-token" \
-  -H "Content-Type: application/json" \
-  -d '{"vesselId":"1001","timestampUTC":"2025-12-23T12:34:56Z","signals":{"Signal_1":1,"Signal_70":123.4,"Signal_999":3.14}}'
-```
-
-5) 200 OK with `validSignals: 0` (type mismatches filtered):
-
-```bash
-curl -i -X POST http://localhost:8080/api/v1/telemetry \
-  -H "Authorization: Bearer seaker-telemetry-gateway-dev-token" \
-  -H "Content-Type: application/json" \
-  -d '{"vesselId":"1001","timestampUTC":"2025-12-23T12:34:56Z","signals":{"Signal_1":true,"Signal_70":"123.4"}}'
-```
-
-These mismatches are stored in `filtered_raw` with `type_mismatch`.
+See [tests/README.md](tests/README.md) for curl-based test scripts and how to execute them.
 
 ## Project Structure
 
